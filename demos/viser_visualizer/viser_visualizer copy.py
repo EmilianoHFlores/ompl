@@ -67,7 +67,6 @@ class ViserVisualizer:
                 vamp_folder = Path(vamp.__file__).parent.parent.parent
                 ur5_urdf_file = vamp_folder / 'resources' / 'ur5' / 'ur5.urdf'
                 mesh_dir = vamp_folder / 'resources' / 'ur5'
-                print(f"loading from {ur5_urdf_file}")
                 
                 def package_aware_handler(fname):
                     """Resolve package:// URIs by stripping prefix and joining with mesh_dir"""
@@ -92,60 +91,7 @@ class ViserVisualizer:
             # /home/ef55/robotics/ompl_work/ompl/external/vamp/resources/ur5/ur5.urdf
             
         
-        self.urdf_vis = ViserUrdf(self.server, 
-                                  self.robot_urdf, 
-                                  root_node_name=f"/{robot_name}",
-                                #   mesh_color_override=(0.1, 0.8, 0.1)
-                                )
-        
-        # Create GUI elements for controlling environment map
-        with self.server.gui.add_folder("Environment map"):
-            self.gui_env_preset = self.server.gui.add_dropdown(
-                "Preset",
-                (
-                    "None",
-                    "apartment",
-                    "city",
-                    "dawn",
-                    "forest",
-                    "lobby",
-                    "night",
-                    "park",
-                    "studio",
-                    "sunset",
-                    "warehouse",
-                ),
-                initial_value="sunset",
-            )
-            self.gui_background = self.server.gui.add_checkbox("Background", True)
-            self.gui_bg_blurriness = self.server.gui.add_slider(
-                "Bg Blurriness",
-                min=0.0,
-                max=1.0,
-                step=0.01,
-                initial_value=1.0,
-            )
-            self.gui_bg_intensity = self.server.gui.add_slider(
-                "Bg Intensity",
-                min=0.0,
-                max=1.0,
-                step=0.01,
-                initial_value=0.8,
-            )
-            self.gui_env_intensity = self.server.gui.add_slider(
-                "Env Intensity",
-                min=0.0,
-                max=1.0,
-                step=0.01,
-                initial_value=0.4,
-            )
-
-        self._update_environment_map()
-        self.gui_env_preset.on_update(lambda _: self._update_environment_map())
-        self.gui_background.on_update(lambda _: self._update_environment_map())
-        self.gui_bg_blurriness.on_update(lambda _: self._update_environment_map())
-        self.gui_bg_intensity.on_update(lambda _: self._update_environment_map())
-        self.gui_env_intensity.on_update(lambda _: self._update_environment_map())
+        self.urdf_vis = ViserUrdf(self.server, self.robot_urdf, root_node_name=f"/{robot_name}")
         
         self._trajectory = None
         self._slider = None
@@ -154,11 +100,7 @@ class ViserVisualizer:
     def reset(self):
         """Reset the entire scene including the robot"""
         self.server.scene.reset()
-        self.urdf_vis = ViserUrdf(self.server, 
-                                  self.robot_urdf, 
-                                  root_node_name=f"/{self.robot_name}",
-                                #   mesh_color_override=(0.1, 0.8, 0.1)
-                                  )
+        self.urdf_vis = ViserUrdf(self.server, self.robot_urdf, root_node_name=f"/{self.robot_name}")
         
         # Reset internal state
         self._trajectory = None
@@ -176,16 +118,6 @@ class ViserVisualizer:
         self.server.initial_camera.position = np.array(position, dtype=np.float64)
         self.server.initial_camera.look_at = np.array(target, dtype=np.float64)
     
-    def _update_environment_map(self) -> None:
-        """Update the environment map based on GUI controls"""
-        self.server.scene.configure_environment_map(
-            self.gui_env_preset.value if self.gui_env_preset.value != "None" else None,
-            background=self.gui_background.value,
-            background_blurriness=self.gui_bg_blurriness.value,
-            background_intensity=self.gui_bg_intensity.value,
-            environment_intensity=self.gui_env_intensity.value,
-        )
-    
     def load_mbm_environment(self, problem_data: Dict[str, Any], ignore_names: List[str] = [], 
                              color=(0.8, 0.4, 0.2), padding: float = 0.0):
         """Load environment from MBM problem format
@@ -199,8 +131,8 @@ class ViserVisualizer:
         # Helper function to convert euler angles to quaternion and create rotation matrix
         
         # boxes that color, cylinders a different
-        box_color = (0.8, 0.4, 0.2, 0.75)
-        cylinder_color = (0.8, 0.4, 0.2, 0.75)
+        box_color = (0.8, 0.4, 0.2, 0.5)
+        cylinder_color = (0.2, 0.8, 0.2, 0.5)
         
         def euler_to_rotation_matrix(euler_xyz):
             """Convert euler angles (xyz) to rotation matrix"""
@@ -477,7 +409,7 @@ class ViserVisualizer:
             print("No trajectory loaded. Call visualize_trajectory() first.")
             return None
         
-        print(f"Visualization running. Press {key if key != 'any' else 'any key'} to stop or click play button...")
+        print(f"Visualization running. Press {key if key != 'any' else 'any key'} to stop...")
         
         pressed_key = [None]
         stop_flag = threading.Event()
@@ -516,43 +448,21 @@ class ViserVisualizer:
         key_thread.start()
         
         # Run visualization loop until key is pressed
-        # The play button controls auto-advancement of the slider
         try:
-            frame_idx = 0
-            last_playing_state = False
-            
             while not stop_flag.is_set():
-                # Check if playing state just changed from False to True
-                if self._playing is not None:
-                    current_playing_state = self._playing.value
-                    if current_playing_state and not last_playing_state:
-                        # Playing just activated, capture current slider position
-                        if self._slider is not None:
-                            frame_idx = self._slider.value
-                    last_playing_state = current_playing_state
-                
-                # If playing is checked, auto-advance the slider
-                if self._playing is not None and self._playing.value:
-                    if self._slider is not None:
-                        self._slider.value = frame_idx
-                    frame_idx = (frame_idx + 1) % len(self._trajectory)
-                
-                # Always update robot position based on current slider value
-                if self._slider is not None:
-                    current_idx = self._slider.value
-                else:
-                    current_idx = frame_idx
-                
-                plan_config = self._trajectory[current_idx].tolist()
-                # Map planning config to full URDF config (e.g., 9 DOF to 24 DOF for fetch)
-                config = self._map_plan_config_to_urdf(plan_config)
-                try:
-                    self.urdf_vis.update_cfg(np.array(config))
-                except:
-                    config.append(0.0)
-                    self.urdf_vis.update_cfg(np.array(config))
-                
-                time.sleep(dt)
+                for i in range(len(self._trajectory)):
+                    if stop_flag.is_set():
+                        break
+                    self._slider.value = i
+                    plan_config = self._trajectory[i].tolist()
+                    # Map planning config to full URDF config (e.g., 9 DOF to 24 DOF for fetch)
+                    config = self._map_plan_config_to_urdf(plan_config)
+                    try:
+                        self.urdf_vis.update_cfg(config)
+                    except:
+                        config.append(0.0)
+                        self.urdf_vis.update_cfg(config)
+                    time.sleep(dt)
         finally:
             stop_flag.set()
         
